@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Observability Platform — Design Document</title>
+  <style>
+    :root {
+      --brand:      #1a73e8;
+      --brand-dark: #0d47a1;
+      --accent:     #f57c00;
+      --ok:         #2e7d32;
+      --warn:       #f57c00;
+      --err:        #c62828;
+      --bg:         #f8f9fa;
+      --card:       #ffffff;
+      --border:     #e0e0e0;
+      --text:       #212121;
+      --muted:      #616161;
+      --code-bg:    #f3f4f6;
+      --mono:       'Courier New', Courier, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 100%);
+      color: #fff;
+      padding: 48px 64px 40px;
+    }
+    header h1 { font-size: 2.2rem; font-weight: 700; letter-spacing: -0.5px; }
+    header .subtitle { font-size: 1.05rem; opacity: 0.85; margin-top: 8px; }
+    header .meta { margin-top: 20px; display: flex; gap: 32px; font-size: 0.88rem; opacity: 0.75; }
+    header .meta span::before { content: '▸ '; }
+
+    /* ── Layout ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 0 40px 80px; }
+
+    /* ── TOC ── */
+    nav.toc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 28px 32px;
+      margin: 40px 0 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 48px;
+    }
+    nav.toc h2 { grid-column: 1 / -1; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    nav.toc a { color: var(--brand); text-decoration: none; font-size: 0.93rem; }
+    nav.toc a:hover { text-decoration: underline; }
+    nav.toc .num { color: var(--muted); margin-right: 6px; font-size: 0.82rem; }
+
+    /* ── Sections ── */
+    section { margin-bottom: 56px; }
+    h2.section-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--brand-dark);
+      border-bottom: 3px solid var(--brand);
+      padding-bottom: 10px;
+      margin-bottom: 24px;
+    }
+    h3 { font-size: 1.12rem; font-weight: 600; margin: 28px 0 12px; color: var(--text); }
+    p  { margin-bottom: 14px; color: var(--text); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px 28px;
+      margin-bottom: 16px;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .card h4 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .card p  { font-size: 0.9rem; margin: 0; color: var(--muted); }
+
+    /* ── Pipeline diagram ── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+      padding: 24px 0;
+      margin: 24px 0;
+    }
+    .svc-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 110px;
+    }
+    .svc-bubble {
+      background: var(--brand);
+      color: #fff;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.3;
+      width: 100px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .svc-bubble.generator { background: #6a1b9a; }
+    .svc-bubble.infra     { background: var(--muted); }
+    .svc-port {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 5px;
+    }
+    .arrow {
+      font-size: 1.4rem;
+      color: var(--brand);
+      padding: 0 4px;
+      line-height: 1;
+      align-self: center;
+      padding-bottom: 18px;
+    }
+
+    /* ── OTEL pipeline ── */
+    .otel-pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 24px 0;
+      overflow-x: auto;
+    }
+    .otel-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      min-width: 140px;
+      flex: 1;
+    }
+    .otel-box h5 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.8px; margin-bottom: 8px; }
+    .otel-box ul { list-style: none; font-size: 0.85rem; }
+    .otel-box ul li::before { content: '• '; color: var(--brand); }
+    .otel-arrow { font-size: 1.6rem; color: var(--border); align-self: center; padding: 0 8px; }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      background: var(--card);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    thead { background: var(--brand); color: #fff; }
+    thead th { padding: 12px 16px; text-align: left; font-weight: 600; }
+    tbody tr:nth-child(even) { background: #f1f5ff; }
+    tbody td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* ── Code ── */
+    code {
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.85em;
+      color: #b71c1c;
+    }
+    pre {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 20px 24px;
+      border-radius: 10px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.6;
+      margin: 16px 0;
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-blue   { background: #e3f2fd; color: #0d47a1; }
+    .badge-green  { background: #e8f5e9; color: #1b5e20; }
+    .badge-orange { background: #fff3e0; color: #bf360c; }
+    .badge-purple { background: #f3e5f5; color: #4a148c; }
+    .badge-grey   { background: #f5f5f5; color: #424242; }
+
+    /* ── Callout ── */
+    .callout {
+      border-left: 4px solid var(--brand);
+      background: #e8f0fe;
+      padding: 14px 18px;
+      border-radius: 0 8px 8px 0;
+      margin: 16px 0;
+      font-size: 0.92rem;
+    }
+    .callout.warn  { border-color: var(--warn); background: #fff8e1; }
+    .callout.ok    { border-color: var(--ok);   background: #e8f5e9; }
+
+    /* ── Signal list ── */
+    .signal-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 16px 0;
+    }
+    .signal-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+    }
+    .signal-icon { font-size: 2rem; margin-bottom: 8px; }
+    .signal-card h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; }
+    .signal-card p  { font-size: 0.83rem; color: var(--muted); margin: 0; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 32px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Payment Observability Platform</h1>
+  <div class="subtitle">Design Document — 8-Service Payment Pipeline with Full-Stack Observability</div>
+  <div class="meta">
+    <span>Version 1.0</span>
+    <span>Stack: Java 21 · Spring Boot 3 · OpenTelemetry · Tempo · Prometheus · Loki · Grafana</span>
+    <span>May 2026</span>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- TOC -->
+  <nav class="toc">
+    <h2>Contents</h2>
+    <a href="#overview"><span class="num">1</span>Project Overview</a>
+    <a href="#architecture"><span class="num">6</span>Infrastructure &amp; Docker Compose</a>
+    <a href="#pipeline"><span class="num">2</span>Payment Pipeline</a>
+    <a href="#otel"><span class="num">7</span>OpenTelemetry Collector</a>
+    <a href="#services"><span class="num">3</span>Service Reference</a>
+    <a href="#tempo"><span class="num">8</span>Tempo — Distributed Tracing</a>
+    <a href="#common"><span class="num">4</span>Common Library</a>
+    <a href="#prometheus"><span class="num">9</span>Prometheus — Metrics</a>
+    <a href="#loadgen"><span class="num">5</span>Load Generator</a>
+    <a href="#grafana"><span class="num">10</span>Grafana Dashboard</a>
+  </nav>
+
+  <!-- 1. Overview -->
+  <section id="overview">
+    <h2 class="section-title">1 · Project Overview</h2>
+    <p>
+      This project is a <strong>reference implementation of a payment processing pipeline</strong>
+      with production-grade observability baked in from day one. Eight Spring Boot microservices
+      simulate a real-world cross-border payment flow — from channel initiation through routing,
+      format transformation, fraud screening, accounting, posting, network dispatch, and final
+      settlement response.
+    </p>
+    <p>
+      Every payment carries a <strong>UETR</strong> (Unique End-to-End Transaction Reference,
+      a UUID defined by ISO 20022 / SWIFT gpi). The UETR is propagated through all eight services
+      as both an OpenTelemetry span attribute (<code>payment.uetr</code>) and as an MDC key in
+      structured logs, so a single identifier can retrieve the complete trace, all service logs,
+      and span metrics in Grafana.
+    </p>
+
+    <h3>Goals</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h4>🔍 End-to-End Traceability</h4>
+        <p>Paste one UETR into Grafana and instantly see the full 8-hop flame graph, every log line
+           from every service, and per-stage latency — no manual correlation needed.</p>
+      </div>
+      <div class="card">
+        <h4>📊 Span-Derived Metrics</h4>
+        <p>Tempo's metrics generator converts trace spans into Prometheus-compatible span metrics and
+           service-graph metrics — no Prometheus client code in services.</p>
+      </div>
+      <div class="card">
+        <h4>🚀 Zero-Code Instrumentation</h4>
+        <p>The OTEL Java agent auto-instruments Spring MVC, RestTemplate, and Logback. Services
+           contain no OpenTelemetry imports except the shared UETRTraceFilter.</p>
+      </div>
+      <div class="card">
+        <h4>🐳 One-Command Stack</h4>
+        <p><code>docker compose up</code> starts all 14 containers — infra, services, and load
+           generator — with all wiring pre-configured.</p>
+      </div>
+    </div>
+
+    <h3>Technology Stack</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>Technology</th><th>Version</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>Services</td><td>Java / Spring Boot</td><td>Java 21, SB 3.x</td><td>8 payment microservices</td></tr>
+        <tr><td>Instrumentation</td><td>OTEL Java Agent</td><td>v2.3.0</td><td>Zero-code traces, metrics, logs</td></tr>
+        <tr><td>Collector</td><td>OTel Collector Contrib</td><td>latest</td><td>Fan-out to Tempo / Prometheus / Loki</td></tr>
+        <tr><td>Tracing</td><td>Grafana Tempo</td><td>latest</td><td>Trace storage + span/service metrics</td></tr>
+        <tr><td>Metrics</td><td>Prometheus</td><td>latest</td><td>Scrape + remote-write sink</td></tr>
+        <tr><td>Logs</td><td>Grafana Loki</td><td>latest</td><td>Log aggregation via OTLP</td></tr>
+        <tr><td>Dashboards</td><td>Grafana</td><td>10.3.1</td><td>Unified observability UI</td></tr>
+        <tr><td>Load Generator</td><td>Python / httpx / asyncio</td><td>3.x</td><td>Continuous synthetic payments</td></tr>
+        <tr><td>Container Runtime</td><td>Docker Compose</td><td>v3.8</td><td>Local orchestration</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 2. Payment Pipeline -->
+  <section id="pipeline">
+    <h2 class="section-title">2 · Payment Pipeline</h2>
+    <p>
+      The pipeline is <strong>fully synchronous and linear</strong>. Each service receives an HTTP
+      POST, enriches the payment JSON, and immediately calls its downstream neighbour before
+      returning. The response therefore travels back through the same chain in reverse, so a single
+      client call to <code>payment-initiation</code> blocks until all eight stages complete.
+    </p>
+
+    <div class="pipeline">
+      <div class="svc-box">
+        <div class="svc-bubble generator">Load<br>Generator</div>
+        <div class="svc-port">Python</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">payment-<br>initiation</div>
+        <div class="svc-port">:8001</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">routing</div>
+        <div class="svc-port">:8002</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">transformer</div>
+        <div class="svc-port">:8003</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">payment-<br>processor</div>
+        <div class="svc-port">:8004</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">accounting-<br>generator</div>
+        <div class="svc-port">:8005</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">posting</div>
+        <div class="svc-port">:8006</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">dispatcher</div>
+        <div class="svc-port">:8007</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="svc-box">
+        <div class="svc-bubble">response-<br>handler</div>
+        <div class="svc-port">:8008</div>
+      </div>
+    </div>
+
+    <h3>Payment Payload Lifecycle</h3>
+    <table>
+      <thead><tr><th>Stage</th><th>Service</th><th>Fields Added to Payload</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-purple">0</span> Generate</td>
+          <td>load-generator</td>
+          <td><code>uetr</code>, <code>amount</code>, <code>currency</code>, <code>debtor_account</code>, <code>creditor_account</code>, <code>channel</code></td>
+          <td>UETR seeded as OTEL trace ID</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">1</span> Initiate</td>
+          <td>payment-initiation</td>
+          <td>—</td>
+          <td>Entry point; logs and forwards to routing</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">2</span> Route</td>
+          <td>routing</td>
+          <td><code>routing_rail</code> (SWIFT / SEPA / CHAPS / BACS / FPS / RTP)</td>
+          <td>Random rail selection</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">3</span> Transform</td>
+          <td>transformer</td>
+          <td><code>message_format</code> (MT103 / pacs.008 / ISO20022 / …)</td>
+          <td>Maps rail → ISO message format</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-orange">4</span> Process</td>
+          <td>payment-processor</td>
+          <td><code>fraud_score</code>, <code>compliance_status</code></td>
+          <td>Gaussian fraud model; score ≥ 0.7 → 422 REVIEW error</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">5</span> Account</td>
+          <td>accounting-generator</td>
+          <td><code>journal_id</code>, <code>debit_entry</code>, <code>credit_entry</code></td>
+          <td>Generates double-entry ledger IDs</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">6</span> Post</td>
+          <td>posting</td>
+          <td><code>posting_ref</code></td>
+          <td>Derives posting reference from journal_id</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">7</span> Dispatch</td>
+          <td>dispatcher</td>
+          <td><code>network_endpoint</code>, <code>dispatch_ref</code></td>
+          <td>Maps rail to simulated network endpoint</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-green">8</span> Respond</td>
+          <td>response-handler</td>
+          <td><code>status: completed</code>, <code>new_uetr</code>, full summary</td>
+          <td>Terminal node; assembles final settlement response</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>Fraud path:</strong> When <code>payment-processor</code> assigns <code>fraud_score ≥ 0.7</code>
+      (roughly 5–10% of payments based on the Gaussian distribution), it throws HTTP 422. The error
+      propagates back through the chain and is surfaced in Grafana as an error span, incrementing
+      the <em>Total Errors</em> KPI and coloring the service map edge red.
+    </div>
+  </section>
+
+  <!-- 3. Service Reference -->
+  <section id="services">
+    <h2 class="section-title">3 · Service Reference</h2>
+    <p>All eight services share the same Dockerfile (multi-stage Maven build) and the
+       <code>common</code> library. Only the business logic differs.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th><th>Host Port</th><th>Endpoint</th><th>Responsibility</th><th>Downstream</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>payment-initiation</strong></td>
+          <td>8001</td>
+          <td><code>POST /initiate</code></td>
+          <td>Receives payment from channel; entry point for the pipeline</td>
+          <td>routing:8080</td>
+        </tr>
+        <tr>
+          <td><strong>routing</strong></td>
+          <td>8002</td>
+          <td><code>POST /process</code></td>
+          <td>Assigns a payment rail (SWIFT / SEPA / CHAPS / BACS / FPS / RTP) randomly</td>
+          <td>transformer:8080</td>
+        </tr>
+        <tr>
+          <td><strong>transformer</strong></td>
+          <td>8003</td>
+          <td><code>POST /process</code></td>
+          <td>Maps rail to ISO message format (MT103, pacs.008, ISO20022, etc.)</td>
+          <td>payment-processor:8080</td>
+        </tr>
+        <tr>
+          <td><strong>payment-processor</strong></td>
+          <td>8004</td>
+          <td><code>POST /process</code></td>
+          <td>Applies Gaussian fraud scoring; rejects payments with score ≥ 0.7</td>
+          <td>accounting-generator:8080</td>
+        </tr>
+        <tr>
+          <td><strong>accounting-generator</strong></td>
+          <td>8005</td>
+          <td><code>POST /process</code></td>
+          <td>Creates double-entry journal IDs (debit/credit entries)</td>
+          <td>posting:8080</td>
+        </tr>
+        <tr>
+          <td><strong>posting</strong></td>
+          <td>8006</td>
+          <td><code>POST /process</code></td>
+          <td>Generates a posting reference from the journal ID</td>
+          <td>dispatcher:8080</td>
+        </tr>
+        <tr>
+          <td><strong>dispatcher</strong></td>
+          <td>8007</td>
+          <td><code>POST /process</code></td>
+          <td>Resolves the target network endpoint for the assigned rail; adds dispatch ref</td>
+          <td>response-handler:8080</td>
+        </tr>
+        <tr>
+          <td><strong>response-handler</strong></td>
+          <td>8008</td>
+          <td><code>POST /process</code></td>
+          <td>Terminal stage; assembles the completed settlement response with a new UETR</td>
+          <td>— (leaf node)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Build — Multi-Stage Dockerfile</h3>
+    <p>A single <code>services/Dockerfile</code> builds any of the eight services using a
+       <code>SERVICE_MODULE</code> build argument:</p>
+    <pre>
+# Stage 1 — Maven build (eclipse-temurin:21)
+FROM maven:3.9-eclipse-temurin-21 AS build
+ARG SERVICE_MODULE=payment-initiation
+COPY pom.xml .
+COPY common/pom.xml common/pom.xml        # always needed (shared library)
+COPY ${SERVICE_MODULE}/pom.xml ...        # target service POM
+RUN  mvn dependency:go-offline            # dependency layer cached separately
+COPY common/src  common/src
+COPY ${SERVICE_MODULE}/src ${SERVICE_MODULE}/src
+RUN  mvn package -pl ${SERVICE_MODULE} -am -DskipTests
+
+# Stage 2 — Runtime (eclipse-temurin:21-jre)
+FROM eclipse-temurin:21-jre
+RUN  curl -o /otel/javaagent.jar \
+     opentelemetry-javaagent-v2.3.0.jar  # OTEL agent downloaded at build time
+COPY --from=build .../${SERVICE_MODULE}/target/*.jar app.jar
+ENTRYPOINT ["java", "-javaagent:/otel/javaagent.jar", "-jar", "app.jar"]
+    </pre>
+    <div class="callout ok">
+      The Maven dependency cache is its own Docker layer — only invalidated when a POM file
+      changes. Source-only changes rebuild in seconds.
+    </div>
+  </section>
+
+  <!-- 4. Common Library -->
+  <section id="common">
+    <h2 class="section-title">4 · Common Library (<code>services/common</code>)</h2>
+    <p>
+      The <code>common</code> Maven module is a Spring Boot auto-configuration library.
+      It is compiled into every service via <code>-am</code> (also-make) in the Maven build.
+      No service needs to import or configure anything — Spring Boot's autoconfiguration
+      mechanism picks it up automatically via
+      <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code>.
+    </p>
+
+    <h3>UETRTraceFilter</h3>
+    <p>Registered at <code>Ordered.HIGHEST_PRECEDENCE</code> (outermost filter in the chain).
+       On every inbound <code>POST application/json</code> it:</p>
+    <ol style="padding-left:24px; margin-bottom:14px;">
+      <li>Buffers the request body (so it can be read twice — once by the filter, once by Spring MVC).</li>
+      <li>Extracts the <code>uetr</code> field from the JSON payload.</li>
+      <li>Sets <code>MDC["payment.uetr"] = uetr</code> — appears in every Logback log line for the request.</li>
+      <li>Sets <code>span.setAttribute("payment.uetr", uetr)</code> on the current OTEL span — enables
+          the Grafana TraceQL query <code>{ span.payment.uetr =~ ".+" }</code>.</li>
+    </ol>
+
+    <h3>CommonAutoConfiguration — Beans Provided</h3>
+    <table>
+      <thead><tr><th>Bean</th><th>Type</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>uetrTraceFilter</code></td>
+          <td><code>FilterRegistrationBean&lt;UETRTraceFilter&gt;</code></td>
+          <td>UETR → span attribute + MDC, all routes</td>
+        </tr>
+        <tr>
+          <td><code>restTemplate</code></td>
+          <td><code>RestTemplate</code></td>
+          <td>Built via <code>RestTemplateBuilder</code>; the OTEL Java agent instruments it to
+              inject <code>traceparent</code> / <code>tracestate</code> headers automatically on
+              every outbound call — no manual propagation code needed.</td>
+        </tr>
+        <tr>
+          <td><code>DownstreamErrorForwarder</code></td>
+          <td><code>@RestControllerAdvice</code></td>
+          <td>Catches <code>HttpStatusCodeException</code> and re-throws with the original HTTP
+              status code so a 422 from <code>payment-processor</code> reaches the client as 422,
+              not 500.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 5. Load Generator -->
+  <section id="loadgen">
+    <h2 class="section-title">5 · Load Generator</h2>
+    <p>
+      A Python 3 async service (<code>load_generator/generate_payments.py</code>) that sends
+      synthetic payments at a configurable rate (default: 10/min). Its key design point is that
+      the <strong>UETR UUID is used as the OTEL trace ID</strong>, so the Grafana search by UETR
+      finds the exact trace in Tempo without any additional look-up.
+    </p>
+
+    <h3>UETR → Trace ID Seeding</h3>
+    <pre>
+# UETR is a UUID, e.g. b4f48063-46e8-4eba-9f56-5d56e791fad3
+uetr_hex = uetr.replace("-", "")           # 32-char hex = 128-bit integer
+_uetr_trace_id.set(int(uetr_hex, 16))      # stored in a ContextVar
+
+class UETRIdGenerator(IdGenerator):
+    def generate_trace_id(self) -> int:
+        tid = _uetr_trace_id.get()         # consume on first call
+        if tid is not None:
+            _uetr_trace_id.set(None)
+            return tid                     # root span gets trace_id == uetr_hex
+        return random.getrandbits(128)     # child spans: random
+    </pre>
+
+    <h3>W3C Trace Context Propagation</h3>
+    <p>
+      After creating the root span, the generator injects the W3C
+      <code>traceparent</code> header into the HTTP request to
+      <code>payment-initiation</code>. The OTEL Java agent in each downstream service reads
+      this header and continues the same trace, so all 8 services appear as child spans in a
+      single flame graph rooted at the generator's span.
+    </p>
+
+    <h3>Configuration</h3>
+    <table>
+      <thead><tr><th>Environment Variable</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>TARGET_URL</code></td><td><code>http://payment-initiation:8080</code></td><td>Entry point service URL</td></tr>
+        <tr><td><code>OTEL_EXPORTER_OTLP_ENDPOINT</code></td><td><code>http://otel-collector:4317</code></td><td>Collector gRPC endpoint</td></tr>
+        <tr><td><code>PAYMENTS_PER_MINUTE</code></td><td><code>10</code></td><td>Target throughput</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 6. Infrastructure -->
+  <section id="architecture">
+    <h2 class="section-title">6 · Infrastructure &amp; Docker Compose</h2>
+    <p>All components run as Docker containers on a single bridge network
+       <code>payment-net</code>. Service-to-service communication uses Docker's internal DNS
+       (container names as hostnames). Only Grafana, Prometheus, and the 8 payment services
+       are exposed on host ports for local access.</p>
+
+    <h3>Container Inventory</h3>
+    <table>
+      <thead><tr><th>Container</th><th>Image</th><th>Host Port(s)</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><strong>elasticsearch</strong></td><td>elasticsearch:8.11.0</td><td>19200</td><td>Search index (log storage backend for Kibana integration if needed)</td></tr>
+        <tr><td><strong>loki</strong></td><td>grafana/loki:latest</td><td>3100</td><td>Log aggregation</td></tr>
+        <tr><td><strong>tempo</strong></td><td>grafana/tempo:latest</td><td>3200, 9095</td><td>Distributed tracing storage + metrics generator</td></tr>
+        <tr><td><strong>otel-collector</strong></td><td>otel/opentelemetry-collector-contrib</td><td>14317, 14318, 8889</td><td>OTLP receiver; fans out to Tempo / Prometheus / Loki</td></tr>
+        <tr><td><strong>prometheus</strong></td><td>prom/prometheus:latest</td><td>9090</td><td>Metrics storage; scraped by Grafana</td></tr>
+        <tr><td><strong>grafana</strong></td><td>grafana/grafana:10.3.1</td><td>3000</td><td>Unified dashboards (anonymous admin)</td></tr>
+        <tr><td><strong>payment-initiation</strong></td><td>Built locally</td><td>8001</td><td>Payment pipeline stage 1</td></tr>
+        <tr><td><strong>routing</strong></td><td>Built locally</td><td>8002</td><td>Pipeline stage 2</td></tr>
+        <tr><td><strong>transformer</strong></td><td>Built locally</td><td>8003</td><td>Pipeline stage 3</td></tr>
+        <tr><td><strong>payment-processor</strong></td><td>Built locally</td><td>8004</td><td>Pipeline stage 4 (fraud)</td></tr>
+        <tr><td><strong>accounting-generator</strong></td><td>Built locally</td><td>8005</td><td>Pipeline stage 5</td></tr>
+        <tr><td><strong>posting</strong></td><td>Built locally</td><td>8006</td><td>Pipeline stage 6</td></tr>
+        <tr><td><strong>dispatcher</strong></td><td>Built locally</td><td>8007</td><td>Pipeline stage 7</td></tr>
+        <tr><td><strong>response-handler</strong></td><td>Built locally</td><td>8008</td><td>Pipeline stage 8 (leaf)</td></tr>
+        <tr><td><strong>load-generator</strong></td><td>Built locally</td><td>—</td><td>Continuous synthetic load</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Start-up Dependency Order</h3>
+    <p>Docker Compose health checks enforce the following boot order:</p>
+    <pre>
+elasticsearch (healthy) ─┐
+tempo (started)          ├─→ otel-collector ─→ prometheus ─→ grafana
+                         │
+                         └─→ payment-initiation ─→ ... (all 8 services)
+                                  ↑
+                         load-generator (waits for /health 200)
+    </pre>
+  </section>
+
+  <!-- 7. OTEL Collector -->
+  <section id="otel">
+    <h2 class="section-title">7 · OpenTelemetry Collector</h2>
+    <p>
+      The collector is the central fan-out hub. It receives all three telemetry signals (traces,
+      metrics, logs) over OTLP gRPC from the Java services and the load generator, then routes
+      each signal to its dedicated backend.
+    </p>
+
+    <div class="otel-pipeline">
+      <div class="otel-box">
+        <h5>Receivers</h5>
+        <ul>
+          <li>OTLP gRPC <code>:4317</code></li>
+          <li>OTLP HTTP <code>:4318</code></li>
+        </ul>
+      </div>
+      <div class="otel-arrow">→</div>
+      <div class="otel-box">
+        <h5>Processors</h5>
+        <ul>
+          <li>memory_limiter (512 MiB)</li>
+          <li>resource (adds env label)</li>
+          <li>batch (1 s / 1024 spans)</li>
+        </ul>
+      </div>
+      <div class="otel-arrow">→</div>
+      <div class="otel-box">
+        <h5>Exporters</h5>
+        <ul>
+          <li>Traces → Tempo (OTLP gRPC)</li>
+          <li>Metrics → Prometheus scrape <code>:8889</code></li>
+          <li>Logs → Loki (OTLP HTTP)</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Three Signal Pipelines</h3>
+    <table>
+      <thead><tr><th>Pipeline</th><th>Exporter</th><th>Protocol</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>traces</td><td>Tempo</td><td>OTLP gRPC, TLS insecure</td><td>Full span data including <code>payment.uetr</code> attribute</td></tr>
+        <tr><td>metrics</td><td>Prometheus</td><td>Prometheus scrape endpoint <code>:8889</code></td><td>Namespace: <code>payment</code>; 3-min metric expiration</td></tr>
+        <tr><td>logs</td><td>Loki</td><td>OTLP HTTP <code>/otlp</code></td><td>Loki 3.x accepts OTLP natively; structured metadata enabled</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 8. Tempo -->
+  <section id="tempo">
+    <h2 class="section-title">8 · Tempo — Distributed Tracing</h2>
+    <p>
+      Tempo stores every span from all eight services. Its <strong>metrics generator</strong>
+      derives two additional metric sets from the trace data and remote-writes them to Prometheus,
+      enabling Grafana's service map panel and span-level latency/error metrics without any
+      Prometheus client code in services.
+    </p>
+
+    <h3>Metrics Generator Processors</h3>
+    <table>
+      <thead><tr><th>Processor</th><th>Metrics Produced</th><th>Extra Dimensions</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>service-graphs</code></td>
+          <td><code>traces_service_graph_request_total</code><br><code>traces_service_graph_request_failed_total</code><br><code>traces_service_graph_request_server_seconds_*</code></td>
+          <td><code>payment.stage</code></td>
+        </tr>
+        <tr>
+          <td><code>span-metrics</code></td>
+          <td><code>traces_spanmetrics_calls_total</code><br><code>traces_spanmetrics_latency_*</code></td>
+          <td><code>payment.stage</code>, <code>payment.currency</code>, <code>payment.routing_rail</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Storage</h3>
+    <p>Local filesystem backend (<code>/var/tempo/blocks</code>), suitable for development.
+       For production, swap to S3/GCS/Azure Blob in <code>tempo.yaml</code>.</p>
+
+    <h3>Key TraceQL Queries</h3>
+    <table>
+      <thead><tr><th>Use Case</th><th>Query</th></tr></thead>
+      <tbody>
+        <tr><td>All UETR payment traces</td><td><code>{ span.payment.uetr =~ ".+" }</code></td></tr>
+        <tr><td>Specific payment by UETR</td><td><code>{ span.payment.uetr = "b4f48063-46e8-…" }</code></td></tr>
+        <tr><td>All errors in pipeline</td><td><code>{ status = error }</code></td></tr>
+        <tr><td>Slow payments (&gt; 500 ms)</td><td><code>{ duration &gt; 500ms &amp;&amp; span.payment.uetr =~ ".+" }</code></td></tr>
+        <tr><td>SWIFT payments only</td><td><code>{ span.payment.routing_rail = "SWIFT" }</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 9. Prometheus -->
+  <section id="prometheus">
+    <h2 class="section-title">9 · Prometheus — Metrics</h2>
+    <p>Prometheus scrapes three targets every 15 seconds:</p>
+    <table>
+      <thead><tr><th>Job</th><th>Target</th><th>Metrics Source</th></tr></thead>
+      <tbody>
+        <tr><td><code>otel-collector</code></td><td><code>otel-collector:8889</code></td><td>Span metrics exported by the collector's Prometheus exporter</td></tr>
+        <tr><td><code>tempo</code></td><td><code>tempo:3200/metrics</code></td><td>Service-graph metrics remote-written by Tempo's metrics generator</td></tr>
+        <tr><td><code>payment-services</code></td><td>All 8 services <code>:8000/metrics</code></td><td>JVM metrics auto-exposed by the OTEL Java agent</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Key Metrics Used in Grafana Dashboard</h3>
+    <table>
+      <thead><tr><th>Metric</th><th>Labels</th><th>Dashboard Panel</th></tr></thead>
+      <tbody>
+        <tr><td><code>traces_spanmetrics_calls_total</code></td><td>service, span_name, status_code</td><td>Payments Initiated/Completed, Error count, Success Rate</td></tr>
+        <tr><td><code>traces_spanmetrics_latency_*</code></td><td>service, span_name, le</td><td>Avg E2E Latency, P99/P50, Heatmap</td></tr>
+        <tr><td><code>traces_service_graph_request_*</code></td><td>client, server</td><td>Service Dependency Map edges</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 10. Grafana Dashboard -->
+  <section id="grafana">
+    <h2 class="section-title">10 · Grafana Dashboard</h2>
+    <p>
+      A single provisioned dashboard (<code>grafana/provisioning/dashboards/payment-tracing.json</code>,
+      UID: <code>payment-obs-v1</code>) covers all observability needs. It auto-loads on startup
+      with anonymous admin access — no login required.
+    </p>
+
+    <h3>Dashboard Variables</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Type</th><th>Default</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>uetr</code></td><td>Textbox</td><td><code>.+</code></td><td>Filters the log panel to one payment flow; default shows all</td></tr>
+        <tr><td><code>service</code></td><td>Query (Prometheus)</td><td>All</td><td>Multi-select filter for the performance metric panels</td></tr>
+        <tr><td><code>selectedTraceId</code></td><td>Textbox</td><td>empty</td><td>Set by clicking a row in the Trace IDs panel; drives the Call Trace panel</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Panel Layout</h3>
+    <table>
+      <thead><tr><th>Section</th><th>Panel</th><th>Type</th><th>Data Source</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="6"><strong>KPI Summary</strong></td><td>Payments Initiated</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td>Payments Completed</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td>Total Errors</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td>Success Rate</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td>Avg E2E Latency</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td>Payments / min</td><td>Stat</td><td>Prometheus</td></tr>
+        <tr><td rowspan="2"><strong>Trace Explorer</strong></td>
+            <td>Payment Trace IDs (left)</td><td>Table</td><td>Tempo — TraceQL <code>{ span.payment.uetr =~ ".+" }</code></td></tr>
+        <tr><td>Call Trace (right)</td><td>Traces (flame graph)</td><td>Tempo — <code>queryType: traceql</code> with selected trace ID</td></tr>
+        <tr><td rowspan="3"><strong>Service Performance</strong></td><td>Request Rate (req/s)</td><td>Time series</td><td>Prometheus</td></tr>
+        <tr><td>Error Rate (errors/s)</td><td>Time series</td><td>Prometheus</td></tr>
+        <tr><td>P99 / P50 Latency</td><td>Time series</td><td>Prometheus</td></tr>
+        <tr><td rowspan="2"><strong>Pipeline Throughput</strong></td><td>Stage Throughput (req/s)</td><td>Time series</td><td>Prometheus</td></tr>
+        <tr><td>Payments/min (all services)</td><td>Time series</td><td>Prometheus</td></tr>
+        <tr><td rowspan="2"><strong>Service Map</strong></td><td>Service Dependency Map</td><td>Node graph</td><td>Tempo — serviceMap</td></tr>
+        <tr><td>Pipeline Flow description</td><td>Text (Markdown)</td><td>—</td></tr>
+        <tr><td><strong>Latency Dist.</strong></td><td>E2E Duration Heatmap</td><td>Heatmap</td><td>Prometheus</td></tr>
+        <tr><td><strong>Payment Logs</strong></td><td>All 8 services logs</td><td>Logs</td><td>Loki — filtered by <code>${uetr}</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Trace Drill-Down Flow</h3>
+    <div class="callout ok">
+      <strong>How to trace a specific payment:</strong><br>
+      1. The <em>Payment Trace IDs</em> table (left panel) lists the 20 most recent UETR-tagged traces.<br>
+      2. Clicking any <code>traceID</code> cell sets the <code>selectedTraceId</code> URL variable.<br>
+      3. The <em>Call Trace</em> panel (right, 12-column wide) re-queries Tempo with
+         <code>queryType: traceql</code> + the hex trace ID, which Tempo's datasource detects as
+         a trace ID lookup (<code>isTraceIdQuery()</code>) and fetches the full span tree.<br>
+      4. The flame graph renders inline within the dashboard — no navigation to Explore needed.
+    </div>
+
+    <h3>Observability Signal Summary</h3>
+    <div class="signal-grid">
+      <div class="signal-card">
+        <div class="signal-icon">🔥</div>
+        <h4>Traces</h4>
+        <p>Full 8-hop flame graphs per payment, stored in Tempo. Searchable by UETR via TraceQL
+           <code>span.payment.uetr</code> attribute.</p>
+      </div>
+      <div class="signal-card">
+        <div class="signal-icon">📈</div>
+        <h4>Metrics</h4>
+        <p>Span metrics and service-graph metrics auto-generated by Tempo. Scraped by Prometheus.
+           No Prometheus client code in any service.</p>
+      </div>
+      <div class="signal-card">
+        <div class="signal-icon">📋</div>
+        <h4>Logs</h4>
+        <p>Structured JSON logs from all 8 services, shipped via OTLP to Loki. Each log line
+           carries <code>payment.uetr</code> in MDC for correlation.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  Payment Observability Platform · Design Document v1.0 · Generated May 2026
+</footer>
+
+</body>
+</html>
