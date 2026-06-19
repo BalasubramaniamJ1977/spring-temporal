@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment System — Temporal Refactoring Design</title>
+  <style>
+    :root {
+      --brand: #1a1a2e;
+      --accent: #e94560;
+      --temporal: #6b4fce;
+      --ok: #27ae60;
+      --warn: #e67e22;
+      --bg: #f8f9fa;
+      --card: #ffffff;
+      --border: #dee2e6;
+      --text: #212529;
+      --muted: #6c757d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+    header { background: var(--brand); color: white; padding: 2.5rem 2rem; }
+    header h1 { font-size: 2rem; margin-bottom: .5rem; }
+    header p  { opacity: .75; font-size: 1.05rem; }
+
+    nav {
+      background: var(--temporal);
+      display: flex;
+      gap: 1rem;
+      padding: .75rem 2rem;
+      flex-wrap: wrap;
+    }
+    nav a { color: white; text-decoration: none; font-size: .9rem; opacity: .85; padding: .25rem .5rem; border-radius: 4px; }
+    nav a:hover { opacity: 1; background: rgba(255,255,255,.15); }
+
+    main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+    h2 { font-size: 1.6rem; color: var(--brand); margin: 2rem 0 1rem; border-bottom: 3px solid var(--temporal); padding-bottom: .4rem; }
+    h3 { font-size: 1.2rem; color: var(--brand); margin: 1.5rem 0 .75rem; }
+    h4 { font-size: 1rem; color: var(--temporal); margin: 1rem 0 .5rem; }
+    p  { margin-bottom: .75rem; }
+    ul, ol { margin: .5rem 0 .75rem 1.5rem; }
+    li { margin-bottom: .35rem; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card.highlight { border-left: 4px solid var(--temporal); }
+    .card.warn      { border-left: 4px solid var(--warn); }
+    .card.ok        { border-left: 4px solid var(--ok); }
+
+    .flow { display: flex; flex-direction: column; gap: .5rem; font-family: monospace; font-size: .88rem; }
+    .flow-step { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .flow-box { background: var(--temporal); color: white; border-radius: 6px; padding: .35rem .8rem; white-space: nowrap; font-weight: 600; }
+    .flow-box.legacy   { background: var(--warn); }
+    .flow-box.parallel { background: var(--ok); }
+    .flow-box.entry    { background: var(--brand); }
+    .flow-box.infra    { background: #495057; }
+    .flow-arrow { color: var(--muted); }
+    .flow-label { color: var(--muted); font-size: .82rem; font-family: monospace; }
+
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; font-size: .92rem; }
+    th { background: var(--brand); color: white; padding: .6rem 1rem; text-align: left; }
+    td { padding: .6rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f1f3f5; }
+
+    .benefits { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .benefit-tile { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+    .benefit-tile h4 { color: var(--temporal); margin-top: 0; }
+    .benefit-tile .icon { font-size: 1.8rem; margin-bottom: .5rem; }
+
+    code { background: #e9ecef; border-radius: 4px; padding: .1rem .35rem; font-size: .88em; font-family: "SFMono-Regular", Consolas, monospace; }
+    pre {
+      background: #1a1a2e; color: #e2e8f0; border-radius: 8px; padding: 1.25rem;
+      overflow-x: auto; font-size: .85rem; line-height: 1.6; margin-bottom: 1rem;
+    }
+    pre .c { color: #6b7280; } pre .k { color: #93c5fd; } pre .s { color: #86efac; }
+    pre .t { color: #fbbf24; } pre .a { color: #f9a8d4; }
+
+    .endpoints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+    .endpoint-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; }
+    .method { display: inline-block; border-radius: 4px; padding: .15rem .5rem; font-size: .8rem; font-weight: 700; margin-right: .5rem; color: white; }
+    .method.get  { background: var(--ok); }
+    .method.post { background: var(--temporal); }
+    .path { font-family: monospace; font-size: .95rem; font-weight: 600; }
+    .endpoint-card p { font-size: .88rem; margin-top: .4rem; color: var(--muted); }
+
+    footer { background: var(--brand); color: rgba(255,255,255,.6); text-align: center; padding: 1.5rem; font-size: .85rem; margin-top: 3rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Payment System — Temporal Refactoring</h1>
+  <p>From a fragile multi-service Kafka/Artemis mesh to a durable, observable Temporal workflow</p>
+</header>
+
+<nav>
+  <a href="#overview">Overview</a>
+  <a href="#before-after">Before vs After</a>
+  <a href="#workflow">Workflow Design</a>
+  <a href="#benefits">Benefits</a>
+  <a href="#endpoints">API</a>
+  <a href="#infrastructure">Infrastructure</a>
+  <a href="#observability">Observability</a>
+  <a href="#quickstart">Quick Start</a>
+</nav>
+
+<main>
+
+  <section id="overview">
+    <h2>Overview</h2>
+    <div class="card highlight">
+      <p>
+        The original architecture used <strong>12 independent Spring Boot microservices</strong> communicating
+        via Apache Kafka topics and ActiveMQ Artemis queues. While each service was individually simple,
+        the <em>coordination</em> between them was implicit — encoded across Kafka topic contracts — with
+        no central place to see what a payment was doing, retry a failed step, or compensate after a
+        partial failure.
+      </p>
+      <p>
+        The refactored architecture replaces the entire downstream coordination layer with a single
+        <strong>Temporal workflow</strong>. The <code>PaymentWorkflow</code> describes the full payment
+        lifecycle as explicit, durable code. Every step is an <em>Activity</em> with automatic retries,
+        configurable timeouts, and full visibility in the Temporal UI.
+      </p>
+    </div>
+  </section>
+
+  <section id="before-after">
+    <h2>Before vs After</h2>
+
+    <h3>Before — Kafka/Artemis Mesh (12 services + 2 brokers)</h3>
+    <div class="card warn">
+      <div class="flow">
+        <div class="flow-step">
+          <span class="flow-box entry">load-generator</span>
+          <span class="flow-arrow">→ POST</span>
+          <span class="flow-box legacy">payment-initiation</span>
+          <span class="flow-arrow">→ HTTP</span>
+          <span class="flow-box legacy">routing</span>
+          <span class="flow-arrow">→ HTTP</span>
+          <span class="flow-box legacy">transformer</span>
+          <span class="flow-arrow">→ HTTP</span>
+          <span class="flow-box legacy">payment-processor</span>
+          <span class="flow-arrow">→ Kafka: payment.accepted</span>
+        </div>
+        <div class="flow-step" style="padding-left:2rem;">
+          <span class="flow-box legacy">accounting-generator</span>
+          <span class="flow-arrow">→ journal.created →</span>
+          <span class="flow-box legacy">posting</span>
+          <span class="flow-arrow">→ posting.completed →</span>
+          <span class="flow-box legacy">dispatcher</span>
+          <span class="flow-arrow">→ Artemis →</span>
+          <span class="flow-box legacy">network-simulator</span>
+          <span class="flow-arrow">→ Artemis →</span>
+          <span class="flow-box legacy">settlement-processor</span>
+          <span class="flow-arrow">→ Kafka →</span>
+          <span class="flow-box legacy">response-handler</span>
+        </div>
+        <div class="flow-step" style="padding-left:2rem;">
+          <span class="flow-box legacy">sanctions-screening</span>
+          <span class="flow-label">&nbsp;← parallel consumer of payment.accepted</span>
+        </div>
+        <div class="flow-step" style="padding-left:2rem;">
+          <span class="flow-box legacy">fraud-analytics</span>
+          <span class="flow-label">&nbsp;← parallel consumer of payment.accepted</span>
+        </div>
+      </div>
+    </div>
+
+    <h3>After — Temporal Workflow (2 app services + Temporal)</h3>
+    <div class="card ok">
+      <div class="flow">
+        <div class="flow-step">
+          <span class="flow-box entry">load-generator</span>
+          <span class="flow-arrow">→ POST /initiate</span>
+          <span class="flow-box entry">payment-initiation</span>
+          <span class="flow-arrow">→ WorkflowClient.start()</span>
+          <span class="flow-box infra">Temporal Server</span>
+        </div>
+        <div class="flow-step" style="padding-left:3rem;">
+          <span class="flow-arrow">↓ dispatches to</span>
+          <span class="flow-box">temporal-worker</span>
+        </div>
+        <div class="flow-step" style="padding-left:3rem;">
+          <span class="flow-label">PaymentWorkflowImpl executes:</span>
+        </div>
+        <div class="flow-step" style="padding-left:4rem; gap:.4rem;">
+          <span class="flow-box">routeAndTransform</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">acceptPayment</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box parallel">[screenSanctions ∥ detectFraud]</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">generateJournal</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">postToLedger</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">dispatchToNetwork</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">simulateNetwork</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-box">processSettlement</span>
+        </div>
+      </div>
+    </div>
+
+    <h3>Service Count Comparison</h3>
+    <table>
+      <tr><th>Role</th><th>Before</th><th>After</th></tr>
+      <tr><td>HTTP entry point</td><td>payment-initiation, routing, transformer, payment-processor (4)</td><td>payment-initiation (1)</td></tr>
+      <tr><td>Async processing</td><td>accounting-generator, posting, dispatcher, network-simulator, settlement-processor, response-handler, sanctions-screening, fraud-analytics (8)</td><td>temporal-worker (1)</td></tr>
+      <tr><td>Message brokers</td><td>Apache Kafka + ActiveMQ Artemis (2 broker processes)</td><td>none — Temporal manages all state in PostgreSQL</td></tr>
+      <tr><td>Workflow engine</td><td>none (implicit in Kafka topic contracts)</td><td>Temporal Server + PostgreSQL</td></tr>
+      <tr><td><strong>Total containers</strong></td><td><strong>~18</strong></td><td><strong>~8</strong></td></tr>
+    </table>
+  </section>
+
+  <section id="workflow">
+    <h2>Workflow Design</h2>
+    <div class="card highlight">
+      <h3>PaymentWorkflowImpl — Step by Step</h3>
+      <ol>
+        <li><strong>routeAndTransform</strong> — Assigns a routing rail (SWIFT/SEPA/CHAPS/BACS/FPS/RTP) and the corresponding ISO message format. Replaces <em>routing</em> + <em>transformer</em> services.</li>
+        <li><strong>acceptPayment</strong> — Generates a tracking ID and marks the payment ACCEPTED. Replaces <em>payment-processor</em>.</li>
+        <li><strong>[Parallel] screenSanctions &amp; detectFraud</strong> — Both compliance activities fire simultaneously via <code>Async.function() + Promise.get()</code>. Total compliance time = max(sanctions, fraud) instead of their sequential sum. Replaces <em>sanctions-screening</em> + <em>fraud-analytics</em>.</li>
+        <li><strong>Manual review gate</strong> — If fraud risk level is <code>REVIEW</code>, the workflow pauses at <code>Workflow.await()</code> for up to 30 minutes waiting for an <code>approveManualReview</code> signal. No such gate existed before — high-risk payments silently proceeded.</li>
+        <li><strong>generateJournalEntry</strong> — Creates debit/credit journal entries. Replaces <em>accounting-generator</em>.</li>
+        <li><strong>postToLedger</strong> — Posts to ledger (1% simulated failure). Temporal retries up to 3× with exponential backoff. If all retries exhaust, the workflow catches <code>ActivityFailure</code> and executes <em>saga compensation</em> (<code>reverseJournalEntry</code>) before returning <code>FAILED_COMPENSATED</code>. Replaces <em>posting</em> with far better error handling.</li>
+        <li><strong>dispatchToNetwork</strong> — Selects the network endpoint and assigns a dispatch reference. Replaces <em>dispatcher</em>.</li>
+        <li><strong>simulateNetworkSettlement</strong> — External-network simulation (3% rejection, 5 min timeout). Replaces <em>network-simulator</em>.</li>
+        <li><strong>processSettlement</strong> — Generates settlement reference and closes the lifecycle. Replaces <em>settlement-processor</em> + <em>response-handler</em>.</li>
+      </ol>
+    </div>
+
+    <h3>Signals &amp; Queries</h3>
+    <div class="card">
+      <h4>Signal: approveManualReview(approvedBy)</h4>
+      <p>Sent by a compliance officer via <code>POST /approve/{uetr}</code> to unblock a payment stuck at <code>PENDING_FRAUD_REVIEW</code>. The running workflow receives the signal and unblocks immediately.</p>
+
+      <h4>Query: getStatus()</h4>
+      <p>Returns the current workflow stage string without blocking or affecting execution. Exposed via <code>GET /status/{uetr}</code> on payment-initiation. Returns one of: <code>INITIATED</code>, <code>ROUTING</code>, <code>ACCEPTED</code>, <code>COMPLIANCE_SCREENING</code>, <code>PENDING_FRAUD_REVIEW</code>, <code>ACCOUNTING</code>, <code>POSTING</code>, <code>DISPATCHING</code>, <code>NETWORK_PROCESSING</code>, <code>SETTLING</code>, <code>COMPLETED</code>, <code>REJECTED</code>, <code>FAILED_COMPENSATED</code>.</p>
+    </div>
+
+    <h3>Retry &amp; Timeout Policy</h3>
+    <table>
+      <tr><th>Activity Group</th><th>startToCloseTimeout</th><th>maxAttempts</th><th>Backoff</th></tr>
+      <tr><td>Standard (route, accept, journal, post, dispatch, settle)</td><td>2 minutes</td><td>3</td><td>2× (1s → 2s → 4s)</td></tr>
+      <tr><td>Network simulation</td><td>5 minutes</td><td>2</td><td>2× (2s → 4s)</td></tr>
+      <tr><td>Compliance (parallel)</td><td>2 minutes</td><td>3</td><td>2× (1s → 2s → 4s)</td></tr>
+      <tr><td>Manual review gate</td><td colspan="3">30-minute Workflow.await() — returns false (REJECTED) on timeout</td></tr>
+      <tr><td>Workflow execution timeout</td><td colspan="3">60 minutes end-to-end payment deadline</td></tr>
+    </table>
+
+    <h3>Saga Compensation for Posting Failure</h3>
+    <pre><span class="c">// postToLedger has 1% simulated failure — Temporal retries automatically.</span>
+<span class="c">// After all retries exhaust, ActivityFailure propagates into the workflow:</span>
+<span class="k">try</span> {
+    posting = paymentActivities.<span class="a">postToLedger</span>(uetr, journalId);
+} <span class="k">catch</span> (ActivityFailure e) {
+    <span class="c">// Saga compensation: reverse the journal entry already written</span>
+    paymentActivities.<span class="a">reverseJournalEntry</span>(uetr, journalId);
+    <span class="k">return</span> PaymentLifecycle.builder()
+        .status(<span class="s">"FAILED_COMPENSATED"</span>)
+        .rejectionReason(<span class="s">"Ledger posting failed; journal entry reversed"</span>)
+        .build();
+}</pre>
+  </section>
+
+  <section id="benefits">
+    <h2>How Temporal Improves the Application</h2>
+    <div class="benefits">
+      <div class="benefit-tile">
+        <div class="icon">🔁</div>
+        <h4>Automatic Retries with Backoff</h4>
+        <p>Each Activity has a configurable <code>RetryOptions</code>. Transient failures (ledger blip, network timeout) are retried transparently. The workflow code never sees transient failures — only permanent ones via <code>ActivityFailure</code>.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">💾</div>
+        <h4>Durable Execution</h4>
+        <p>Workflow state is checkpointed after every Activity in PostgreSQL. If the worker crashes mid-payment (e.g., during network settlement), the workflow resumes from the last completed step — <strong>no payment is ever lost</strong>.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">🔀</div>
+        <h4>Saga Compensation</h4>
+        <p>When posting fails permanently after all retries, the workflow compensates by reversing the journal entry. This implements the Saga pattern for distributed transaction safety — no two-phase commit required.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">⚡</div>
+        <h4>True Parallel Compliance</h4>
+        <p>Sanctions screening and fraud analysis run concurrently via <code>Async.function() + Promise.get()</code>. Total compliance time = max(sanctions, fraud) — roughly 50% faster than the old sequential Kafka consumer chain.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">🔍</div>
+        <h4>Complete Workflow Visibility</h4>
+        <p>Temporal UI shows every running, completed, and failed workflow with its full event history — Activity retries, signals received, queries answered, final result. No more hunting Kafka offsets to find a stuck payment.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">📡</div>
+        <h4>Signals for Human-in-the-Loop</h4>
+        <p>High-risk payments pause at a durable gate. A compliance officer sends an <code>approveManualReview</code> signal via the REST API — the workflow unblocks immediately. Previously, all payments continued regardless of fraud score.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">⏱️</div>
+        <h4>End-to-End Timeouts</h4>
+        <p>The workflow has a 60-minute execution deadline. Payments stuck on an unresponsive network are automatically failed and compensated. The old Kafka chain had no such guarantee.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">🛠️</div>
+        <h4>Radically Simpler Infrastructure</h4>
+        <p>Kafka + Artemis (2 broker clusters) + 10 consumer microservices replaced by Temporal Server + PostgreSQL + 1 worker service. Fewer containers, fewer deployment pipelines, lower operational cost.</p>
+      </div>
+      <div class="benefit-tile">
+        <div class="icon">🧪</div>
+        <h4>Unit-Testable Workflows</h4>
+        <p>Temporal provides <code>TestWorkflowEnvironment</code> — a simulated time environment where you can unit-test the full payment lifecycle (including retries and timeout behavior) in milliseconds, without any external infrastructure.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="endpoints">
+    <h2>API Endpoints</h2>
+    <h3>payment-initiation (port 8001)</h3>
+    <div class="endpoints">
+      <div class="endpoint-card">
+        <span class="method post">POST</span><span class="path">/initiate</span>
+        <p>Starts a <code>PaymentWorkflow</code> and returns immediately with <code>{uetr, status:"ACCEPTED", trackingId, workflowId}</code>. Full lifecycle runs asynchronously in Temporal.</p>
+      </div>
+      <div class="endpoint-card">
+        <span class="method get">GET</span><span class="path">/status/{uetr}</span>
+        <p>Queries the current workflow stage via Temporal's Query API. Non-blocking. Returns the stage string from <code>getStatus()</code>.</p>
+      </div>
+      <div class="endpoint-card">
+        <span class="method post">POST</span><span class="path">/approve/{uetr}</span>
+        <p>Sends <code>approveManualReview</code> signal to unblock a payment paused at <code>PENDING_FRAUD_REVIEW</code>. Body: <code>{"approvedBy": "officer@bank.com"}</code>.</p>
+      </div>
+    </div>
+    <h3>Temporal UI (port 3001)</h3>
+    <p>Browser UI provided by <code>temporalio/ui</code>. Browse all workflows, inspect event history, send signals manually.</p>
+  </section>
+
+  <section id="infrastructure">
+    <h2>Infrastructure</h2>
+    <table>
+      <tr><th>Component</th><th>Image</th><th>Port</th><th>Purpose</th></tr>
+      <tr><td><strong>temporal-postgresql</strong></td><td><code>postgres:16-alpine</code></td><td>5432 (internal)</td><td>Persists Temporal workflow history, visibility records, namespace metadata</td></tr>
+      <tr><td><strong>temporal</strong></td><td><code>temporalio/auto-setup:1.22.6</code></td><td>7233</td><td>Temporal server — task scheduling, workflow state machine, activity dispatching, history storage</td></tr>
+      <tr><td><strong>temporal-ui</strong></td><td><code>temporalio/ui:2.22.3</code></td><td>3001</td><td>Browser dashboard — list workflows, view event history, send signals</td></tr>
+      <tr><td>otel-collector</td><td><code>otel/opentelemetry-collector-contrib</code></td><td>14317</td><td>Receives OTLP spans/metrics/logs; routes to Tempo, Prometheus, Loki</td></tr>
+      <tr><td>tempo</td><td><code>grafana/tempo</code></td><td>3200</td><td>Distributed trace storage</td></tr>
+      <tr><td>prometheus</td><td><code>prom/prometheus</code></td><td>9090</td><td>Metrics from JVM, Spring Boot actuator, OTEL SDK</td></tr>
+      <tr><td>loki</td><td><code>grafana/loki</code></td><td>3100</td><td>Log aggregation from all services</td></tr>
+      <tr><td>grafana</td><td><code>grafana/grafana:10.3.1</code></td><td>3000</td><td>Dashboards with trace-to-log and trace-to-metrics correlation</td></tr>
+    </table>
+  </section>
+
+  <section id="observability">
+    <h2>Observability</h2>
+    <div class="card highlight">
+      <h3>Traces with Temporal</h3>
+      <p>The OTEL Java agent (v2.3.0, <code>-javaagent</code> in Dockerfile) auto-instruments Temporal SDK calls. The <code>TracingWorkerInterceptor</code> in <code>TemporalConfig</code> propagates OTEL context from the workflow-start span into every Activity execution span. The full payment lifecycle — from <code>POST /initiate</code> through every Activity to final settlement — appears as a single continuous trace in Grafana Tempo.</p>
+      <p>The load generator seeds the OTEL trace ID with the UETR hex, so pasting the UETR into Tempo's search instantly shows the complete payment trace.</p>
+
+      <h3>Complementary Views</h3>
+      <table>
+        <tr><th>Tool</th><th>Port</th><th>What it shows</th></tr>
+        <tr>
+          <td><strong>Temporal UI</strong></td><td>3001</td>
+          <td>Workflow event history: Activity schedule/start/complete, signal received, retry count, final result — business-level view of what the payment did.</td>
+        </tr>
+        <tr>
+          <td><strong>Grafana Tempo</strong></td><td>3000</td>
+          <td>Distributed trace: wall-clock timing per Activity, span attributes (uetr, posting ref, risk score), log correlation — engineering view of how long each step took.</td>
+        </tr>
+        <tr>
+          <td><strong>Grafana (Loki)</strong></td><td>3000</td>
+          <td>Structured logs from temporal-worker and payment-initiation, correlated with trace IDs.</td>
+        </tr>
+        <tr>
+          <td><strong>Prometheus / Grafana</strong></td><td>9090 / 3000</td>
+          <td>JVM heap, GC, HTTP latency, Activity execution rate, retry counts.</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <h2>Quick Start</h2>
+    <div class="card">
+      <h3>1. Build &amp; Start</h3>
+      <pre>cd C:\temp\observability-Java
+docker compose up --build -d</pre>
+
+      <h3>2. Wait for Temporal (~60 s)</h3>
+      <pre>docker compose ps   <span class="c"># temporal should show "healthy"</span></pre>
+
+      <h3>3. Initiate a payment</h3>
+      <pre>curl -X POST http://localhost:8001/initiate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uetr":             "550e8400-e29b-41d4-a716-446655440000",
+    "amount":           50000,
+    "currency":         "GBP",
+    "debtor_account":   "GB29NWBK60161331926819",
+    "creditor_account": "DE89370400440532013000",
+    "channel":          "SWIFT_GPI"
+  }'</pre>
+
+      <h3>4. Poll status</h3>
+      <pre>curl http://localhost:8001/status/550e8400-e29b-41d4-a716-446655440000</pre>
+
+      <h3>5. Approve a high-risk payment</h3>
+      <pre>curl -X POST http://localhost:8001/approve/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Content-Type: application/json" \
+  -d '{"approvedBy": "compliance@bank.com"}'</pre>
+
+      <h3>6. Temporal UI</h3>
+      <p>Open <strong>http://localhost:3001</strong> → search for workflow ID <code>payment-550e8400-…</code></p>
+
+      <h3>7. Grafana Traces</h3>
+      <p>Open <strong>http://localhost:3000</strong> → Explore → Tempo → paste UETR hex (remove dashes) as trace ID.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Payment Observability Stack — Temporal Refactoring &nbsp;|&nbsp;
+  Temporal Server 1.22.6 · Java SDK 1.22.3 · Spring Boot 3.2.3 · OTEL Java Agent 2.3.0
+</footer>
+
+</body>
+</html>
