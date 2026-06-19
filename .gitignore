@@ -1,7 +1,7 @@
 # Claude Code session data
 .claude/
 
-# Downloaded/extracted binary distributions — do not commit
+# Downloaded/extracted binary distributions -- do not commit
 grafana-13.0.1+security-01/
 elasticsearch-9.3.1/
 opentelemetry-python/
@@ -10,6 +10,18 @@ opentelemetry-python/
 *.exe
 *.tar.gz
 *.zip
+
+# Temporal CLI binary (downloaded at runtime by start.sh / start.ps1)
+data/temporal-cli/
+data/*.db
+data/*.zip
+
+# Runtime artifacts
+logs/
+.pids.json
+
+# Maven build output
+services/**/target/
 
 # Elasticsearch runtime data
 elasticsearch*/data/
@@ -24,3 +36,7 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# IDE
+.idea/
+*.iml

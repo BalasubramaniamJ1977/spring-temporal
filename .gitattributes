@@ -1,0 +1,24 @@
+# Force LF for shell scripts so they work on Mac/Linux after checkout on Windows
+*.sh    text eol=lf
+
+# Windows scripts keep CRLF
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+
+# Java / XML / properties -- normalize to LF everywhere
+*.java       text eol=lf
+*.xml        text eol=lf
+*.properties text eol=lf
+*.yaml       text eol=lf
+*.yml        text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+
+# Binaries -- no line ending conversion
+*.jar   binary
+*.zip   binary
+*.tar   binary
+*.gz    binary
+*.exe   binary
+*.png   binary
+*.jpg   binary
