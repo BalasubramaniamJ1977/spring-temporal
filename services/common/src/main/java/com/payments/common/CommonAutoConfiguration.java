@@ -1,12 +1,14 @@
 package com.payments.common;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpStatusCodeException;
@@ -38,6 +40,16 @@ public class CommonAutoConfiguration {
         // The OTEL Java agent instruments RestTemplate to inject
         // traceparent / tracestate into every outbound request automatically.
         return builder.build();
+    }
+
+    /**
+     * Applies UETRKafkaRecordInterceptor to every Kafka listener container factory.
+     * Conditional on ConcurrentKafkaListenerContainerFactory — no-op for HTTP-only services.
+     */
+    @Bean
+    @ConditionalOnClass(ConcurrentKafkaListenerContainerFactory.class)
+    public KafkaUETRInterceptorConfigurer kafkaUETRInterceptorConfigurer() {
+        return new KafkaUETRInterceptorConfigurer();
     }
 
     /** Propagate downstream HTTP errors back to the caller with the original status code. */

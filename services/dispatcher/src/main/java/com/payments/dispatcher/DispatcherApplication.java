@@ -1,17 +1,21 @@
 package com.payments.dispatcher;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.jms.JMSException;
+import jakarta.jms.Message;
+import jakarta.jms.Session;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @SpringBootApplication
 @RestController
@@ -28,8 +32,8 @@ public class DispatcherApplication {
     );
 
     @Value("${spring.application.name}") private String svc;
-    @Value("${next.service.url}")        private String nextUrl;
-    @Autowired private RestTemplate restTemplate;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private JmsTemplate jmsTemplate;
 
     public static void main(String[] args) {
         SpringApplication.run(DispatcherApplication.class, args);
@@ -39,15 +43,29 @@ public class DispatcherApplication {
     public Map<String, String> health() { return Map.of("status", "ok", "service", svc); }
 
     @SuppressWarnings("unchecked")
-    @PostMapping("/process")
-    public Map<String, Object> process(@RequestBody Map<String, Object> payment) {
-        String rail    = (String) payment.getOrDefault("routing_rail", "");
-        String postRef = (String) payment.getOrDefault("posting_ref", payment.getOrDefault("uetr", "UNKNOWN").toString().substring(0, 8).toUpperCase());
+    @KafkaListener(topics = "posting.completed", groupId = "dispatcher-group")
+    public void processPosting(String message) throws Exception {
+        long delay = ThreadLocalRandom.current().nextLong(100, 5000);
+        Thread.sleep(delay);
+
+        Map<String, Object> payment = objectMapper.readValue(message, Map.class);
+        String uetr    = (String) payment.get("uetr");
+        String rail    = (String) payment.getOrDefault("routing_rail", "SWIFT");
+        String postRef = (String) payment.getOrDefault("posting_ref", uetr.substring(0, 8).toUpperCase());
+
         payment.put("network_endpoint", ENDPOINTS.getOrDefault(rail, "unknown.network:9999"));
         payment.put("dispatch_ref",     "DSP-" + postRef);
-        log.info("[{}] INPUT  {}", svc, payment);
-        Map<String, Object> result = restTemplate.postForObject(nextUrl + "/process", payment, Map.class);
-        log.info("[{}] OUTPUT {}", svc, result);
-        return result;
+        payment.put("stage",            "DISPATCHED");
+
+        String json = objectMapper.writeValueAsString(payment);
+
+        // OTEL agent auto-instruments JmsTemplate — trace context injected into JMS headers
+        jmsTemplate.send("payment.outbound", (Session s) -> {
+            Message msg = s.createTextMessage(json);
+            msg.setStringProperty("payment_uetr", uetr);
+            return msg;
+        });
+
+        log.info("[{}] Dispatched uetr={} rail={} delay={}ms → Artemis payment.outbound", svc, uetr, rail, delay);
     }
 }

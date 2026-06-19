@@ -5,34 +5,68 @@ x-service-defaults: &service-defaults
   networks:
     - payment-net
 
-# OTEL Java Agent env vars shared by all payment services.
-# The agent auto-instruments Spring MVC + RestTemplate — no code changes needed.
-x-otel-env: &otel-env
+x-common-env: &common-env
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
   OTEL_LOGS_EXPORTER: otlp
   OTEL_METRICS_EXPORTER: otlp
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=payment-system
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
 
 services:
-  # ── Infrastructure ──────────────────────────────────────────────────────────
+  # ── Temporal Workflow Engine ──────────────────────────────────────────────────
 
-  elasticsearch:
+  temporal-postgresql:
     <<: *service-defaults
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    image: postgres:16-alpine
     environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports:
-      - "19200:9200"  # host 19200; local ES 9.3.1 already holds 9200
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
     volumes:
-      - es-data:/usr/share/elasticsearch/data
+      - temporal-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
-      interval: 15s
-      timeout: 10s
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
       retries: 10
+      start_period: 10s
+
+  temporal:
+    <<: *service-defaults
+    image: temporalio/auto-setup:1.22.6
+    environment:
+      DB: postgresql
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+    ports:
+      - "7233:7233"
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $(hostname -i):7233"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  temporal-ui:
+    <<: *service-defaults
+    image: temporalio/ui:2.22.3
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3001
+    ports:
+      - "3001:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  # ── Observability Stack ───────────────────────────────────────────────────────
 
   loki:
     <<: *service-defaults
@@ -53,7 +87,7 @@ services:
       - tempo-data:/var/tempo
     ports:
       - "3200:3200"
-      - "9095:9095"  # Tempo gRPC
+      - "9095:9095"
 
   otel-collector:
     <<: *service-defaults
@@ -62,12 +96,10 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
-      - "14317:4317"  # OTLP gRPC  (host 14317 → container 4317; avoids conflicts)
-      - "14318:4318"  # OTLP HTTP  (host 14318 → container 4318)
-      - "8889:8889"   # Prometheus metrics exporter
+      - "14317:4317"
+      - "14318:4318"
+      - "8889:8889"
     depends_on:
-      elasticsearch:
-        condition: service_healthy
       tempo:
         condition: service_started
 
@@ -85,7 +117,8 @@ services:
     ports:
       - "9090:9090"
     depends_on:
-      - otel-collector
+      otel-collector:
+        condition: service_started
 
   grafana:
     <<: *service-defaults
@@ -95,18 +128,18 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor traceToMetrics serviceGraph traceToLogs
-      GF_INSTALL_PLUGINS: ""
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
     depends_on:
-      - prometheus
-      - tempo
-      - elasticsearch
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
 
-  # ── Payment Microservices (Java Spring Boot + OTEL Java Agent) ──────────────
+  # ── Payment Application ───────────────────────────────────────────────────────
 
   payment-initiation:
     <<: *service-defaults
@@ -116,132 +149,37 @@ services:
       args:
         SERVICE_MODULE: payment-initiation
     environment:
-      <<: *otel-env
+      <<: *common-env
       SERVICE_NAME: payment-initiation
       OTEL_SERVICE_NAME: payment-initiation
-      NEXT_SERVICE_URL: http://routing:8080
     ports:
       - "8001:8080"
     depends_on:
-      - otel-collector
+      temporal:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
 
-  routing:
+  temporal-worker:
     <<: *service-defaults
     build:
       context: ./services
       dockerfile: Dockerfile
       args:
-        SERVICE_MODULE: routing
+        SERVICE_MODULE: temporal-worker
     environment:
-      <<: *otel-env
-      SERVICE_NAME: routing
-      OTEL_SERVICE_NAME: routing
-      NEXT_SERVICE_URL: http://transformer:8080
+      <<: *common-env
+      SERVICE_NAME: temporal-worker
+      OTEL_SERVICE_NAME: temporal-worker
     ports:
-      - "8002:8080"
+      - "8020:8080"
     depends_on:
-      - otel-collector
+      temporal:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
 
-  transformer:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: transformer
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: transformer
-      OTEL_SERVICE_NAME: transformer
-      NEXT_SERVICE_URL: http://payment-processor:8080
-    ports:
-      - "8003:8080"
-    depends_on:
-      - otel-collector
-
-  payment-processor:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: payment-processor
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: payment-processor
-      OTEL_SERVICE_NAME: payment-processor
-      NEXT_SERVICE_URL: http://accounting-generator:8080
-    ports:
-      - "8004:8080"
-    depends_on:
-      - otel-collector
-
-  accounting-generator:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: accounting-generator
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: accounting-generator
-      OTEL_SERVICE_NAME: accounting-generator
-      NEXT_SERVICE_URL: http://posting:8080
-    ports:
-      - "8005:8080"
-    depends_on:
-      - otel-collector
-
-  posting:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: posting
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: posting
-      OTEL_SERVICE_NAME: posting
-      NEXT_SERVICE_URL: http://dispatcher:8080
-    ports:
-      - "8006:8080"
-    depends_on:
-      - otel-collector
-
-  dispatcher:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: dispatcher
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: dispatcher
-      OTEL_SERVICE_NAME: dispatcher
-      NEXT_SERVICE_URL: http://response-handler:8080
-    ports:
-      - "8007:8080"
-    depends_on:
-      - otel-collector
-
-  response-handler:
-    <<: *service-defaults
-    build:
-      context: ./services
-      dockerfile: Dockerfile
-      args:
-        SERVICE_MODULE: response-handler
-    environment:
-      <<: *otel-env
-      SERVICE_NAME: response-handler
-      OTEL_SERVICE_NAME: response-handler
-    ports:
-      - "8008:8080"
-    depends_on:
-      - otel-collector
+  # ── Load Generator ────────────────────────────────────────────────────────────
 
   load-generator:
     <<: *service-defaults
@@ -249,9 +187,11 @@ services:
       context: ./load_generator
     environment:
       TARGET_URL: http://payment-initiation:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PAYMENTS_PER_MINUTE: "10"
     depends_on:
-      - payment-initiation
+      payment-initiation:
+        condition: service_started
     restart: on-failure
 
 networks:
@@ -259,7 +199,7 @@ networks:
     driver: bridge
 
 volumes:
-  es-data:
+  temporal-db:
   tempo-data:
   prometheus-data:
   grafana-data:

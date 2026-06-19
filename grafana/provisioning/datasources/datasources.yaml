@@ -11,12 +11,13 @@ datasources:
       httpMethod: GET
       tracesToLogsV2:
         datasourceUid: loki
-        filterByTraceID: true
+        filterByTraceID: false
         filterBySpanID: false
         customQuery: true
-        query: '{service_name="${__span.tags["service.name"]}"} |= `${__span.tags["payment.uetr"]}`'
-        spanStartTimeShift: "-1m"
-        spanEndTimeShift: "1m"
+        # Use trace_id text search — matches our log pattern: trace_id=<32 hex>
+        query: '{service_name="${__span.tags["service.name"]}"} |= "${__span.traceId}"'
+        spanStartTimeShift: "-2m"
+        spanEndTimeShift: "2m"
       tracesToMetrics:
         datasourceUid: prometheus
         tags:
@@ -24,15 +25,17 @@ datasources:
             value: service
         queries:
           - name: Request Rate
-            query: rate(payment_payment_requests_total{service="$${__tags.service}"}[5m])
+            query: rate(traces_spanmetrics_calls_total{service="$${__tags.service}"}[5m])
           - name: P99 Latency
-            query: histogram_quantile(0.99, rate(payment_payment_duration_ms_bucket{service="$${__tags.service}"}[5m]))
+            query: histogram_quantile(0.99, sum(rate(traces_spanmetrics_duration_bucket{service="$${__tags.service}"}[5m])) by (le)) * 1000
       serviceMap:
         datasourceUid: prometheus
       search:
         hide: false
       nodeGraph:
         enabled: true
+      lokiSearch:
+        datasourceUid: loki
 
   - name: Prometheus
     type: prometheus
@@ -50,8 +53,10 @@ datasources:
     access: proxy
     jsonData:
       derivedFields:
-        - name: traceId
+        # Extracts 32-char trace_id from log lines like: trace_id=3f591370a88dcc4c...
+        # Creates a "View Trace" link that opens the trace in Tempo within the same panel
+        - name: TraceID
           matcherRegex: 'trace_id=([a-f0-9]{32})'
-          url: "$${__value.raw}"
+          url: "${__value.raw}"
           datasourceUid: tempo
-          urlDisplayLabel: View Trace
+          urlDisplayLabel: "View Trace ↗"

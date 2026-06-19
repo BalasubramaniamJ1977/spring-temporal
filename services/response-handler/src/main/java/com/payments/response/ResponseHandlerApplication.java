@@ -1,18 +1,16 @@
 package com.payments.response;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @SpringBootApplication
 @RestController
@@ -20,6 +18,7 @@ import java.util.UUID;
 public class ResponseHandlerApplication {
 
     @Value("${spring.application.name}") private String svc;
+    @Autowired private ObjectMapper objectMapper;
 
     public static void main(String[] args) {
         SpringApplication.run(ResponseHandlerApplication.class, args);
@@ -28,29 +27,17 @@ public class ResponseHandlerApplication {
     @GetMapping("/health")
     public Map<String, String> health() { return Map.of("status", "ok", "service", svc); }
 
-    @PostMapping("/process")
-    public Map<String, Object> process(@RequestBody Map<String, Object> payment) {
-        log.info("[{}] INPUT  {}", svc, payment);
-        String newUetr = UUID.randomUUID().toString();
+    @SuppressWarnings("unchecked")
+    @KafkaListener(topics = "settlement.completed", groupId = "response-group")
+    public void processSettlement(String message) throws Exception {
+        Map<String, Object> payment = objectMapper.readValue(message, Map.class);
+        String uetr             = (String) payment.get("uetr");
+        String settlementStatus = (String) payment.getOrDefault("settlement_status", "UNKNOWN");
+        String settlementRef    = (String) payment.getOrDefault("settlement_ref", "N/A");
+        String dispatchRef      = (String) payment.getOrDefault("dispatch_ref", "N/A");
+        String postingRef       = (String) payment.getOrDefault("posting_ref", "N/A");
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("status",          "completed");
-        result.put("original_uetr",   payment.get("uetr"));
-        result.put("new_uetr",        newUetr);
-        result.put("routing_rail",    payment.get("routing_rail"));
-        result.put("message_format",  payment.get("message_format"));
-        result.put("journal_id",      payment.get("journal_id"));
-        result.put("posting_ref",     payment.get("posting_ref"));
-        result.put("dispatch_ref",    payment.get("dispatch_ref"));
-        result.put("amount",          payment.get("amount"));
-        result.put("currency",        payment.get("currency"));
-        result.put("pipeline_stages", List.of(
-            "payment-initiation", "routing", "transformer",
-            "payment-processor",  "accounting-generator",
-            "posting", "dispatcher", "response-handler"
-        ));
-
-        log.info("[{}] OUTPUT {}", svc, result);
-        return result;
+        log.info("[{}] Payment lifecycle COMPLETE uetr={} settlement={} settlementRef={} postingRef={} dispatchRef={}",
+            svc, uetr, settlementStatus, settlementRef, postingRef, dispatchRef);
     }
 }

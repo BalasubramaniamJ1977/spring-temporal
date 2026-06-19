@@ -2,9 +2,9 @@
 Load generator — simulates channel-initiated payments with random UETRs.
 
 Each payment creates a root OTEL span whose trace_id equals the UETR (hex,
-no dashes).  The span is exported to the OTEL Collector → Tempo so the full
-8-service chain hangs off this root; paste the UETR into Grafana to see
-the complete trace.
+no dashes).  Payment Processor now returns immediately with ACCEPTED status;
+downstream processing (accounting, posting, sanctions, fraud, settlement)
+happens asynchronously via Kafka and Solace.
 """
 import asyncio
 import contextvars
@@ -27,24 +27,17 @@ OTEL_ENDPOINT       = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-coll
 PAYMENTS_PER_MINUTE = int(os.getenv("PAYMENTS_PER_MINUTE", "10"))
 INTERVAL_SECONDS    = 60.0 / PAYMENTS_PER_MINUTE
 
-CURRENCIES    = ["USD", "EUR", "GBP", "SGD", "HKD", "JPY", "AUD"]
-CHANNELS      = ["MOBILE", "INTERNET_BANKING", "BRANCH", "API", "SWIFT_GPI"]
-DEBIT_ACCOUNTS  = [f"GB{random.randint(10,99)}BARC{random.randint(10**14,10**15-1)}"  for _ in range(20)]
-CREDIT_ACCOUNTS = [f"DE{random.randint(10,99)}1001{random.randint(10**14,10**15-1)}"  for _ in range(20)]
+CURRENCIES      = ["USD", "EUR", "GBP", "SGD", "HKD", "JPY", "AUD"]
+CHANNELS        = ["MOBILE", "INTERNET_BANKING", "BRANCH", "API", "SWIFT_GPI"]
+DEBIT_ACCOUNTS  = [f"GB{random.randint(10,99)}BARC{random.randint(10**14,10**15-1)}" for _ in range(20)]
+CREDIT_ACCOUNTS = [f"DE{random.randint(10,99)}1001{random.randint(10**14,10**15-1)}" for _ in range(20)]
 
-# ContextVar lets each asyncio Task use its own UETR trace-id without races.
 _uetr_trace_id: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
     "uetr_trace_id", default=None
 )
 
 
 class UETRIdGenerator(IdGenerator):
-    """
-    Generates trace IDs from the UETR set in _uetr_trace_id.
-    Falls back to a random 128-bit value if no UETR is set.
-    The value is consumed on first read so subsequent spans in the same
-    task get fresh random IDs.
-    """
     def generate_span_id(self) -> int:
         return random.getrandbits(64)
 
@@ -91,16 +84,14 @@ async def send_payment(client: httpx.AsyncClient, tracer: trace.Tracer) -> None:
         "channel":          random.choice(CHANNELS),
     }
 
-    # Seed the ContextVar so UETRIdGenerator produces trace_id == uetr_hex.
     uetr_hex = uetr.replace("-", "")
     _uetr_trace_id.set(int(uetr_hex, 16))
 
     ts = datetime.utcnow().strftime("%H:%M:%S")
     with tracer.start_as_current_span("payment.initiate") as span:
-        span.set_attribute("payment.uetr", uetr)
+        span.set_attribute("payment.uetr",   uetr)
         span.set_attribute("payment.amount", amount)
 
-        # Inject W3C traceparent so Java services continue this trace.
         carrier: dict = {}
         _propagator.inject(carrier)
 
@@ -109,15 +100,16 @@ async def send_payment(client: httpx.AsyncClient, tracer: trace.Tracer) -> None:
                 f"{TARGET_URL}/initiate",
                 json=payload,
                 headers=carrier,
-                timeout=60.0,
+                timeout=30.0,
             )
             resp.raise_for_status()
-            data     = resp.json()
-            new_uetr = data.get("new_uetr", "N/A")
+            data       = resp.json()
+            status     = data.get("status",     "N/A")
+            tracking   = data.get("trackingId", "N/A")
             completed += 1
             print(
-                f"[{ts}] OK  | orig={uetr} → new={new_uetr} | "
-                f"trace={uetr_hex[:16]}... | "
+                f"[{ts}] {status} | uetr={uetr[:8]}… trackingId={tracking} | "
+                f"trace={uetr_hex[:16]}… | "
                 f"{amount:>12,.2f} {payload['currency']} | "
                 f"done={completed} err={failed}",
                 flush=True,
@@ -152,7 +144,9 @@ async def main() -> None:
 
     print(f"\nLoad generator started — {PAYMENTS_PER_MINUTE} payments/min → {TARGET_URL}", flush=True)
     print("=" * 80, flush=True)
-    print("Paste the 'orig' UETR (or its hex form = trace_id) into Grafana to search.", flush=True)
+    print("Architecture: payment-initiation → Temporal workflow → temporal-worker activities", flush=True)
+    print("Paste the uetr hex (trace_id) into Grafana Tempo to see the end-to-end trace.", flush=True)
+    print("View workflow progress at http://temporal-ui:8080 (or localhost:3001 from host).", flush=True)
     print("=" * 80 + "\n", flush=True)
 
     async with httpx.AsyncClient() as client:

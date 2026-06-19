@@ -19,7 +19,10 @@
 
   <modules>
     <module>common</module>
+    <module>temporal-api</module>
+    <module>temporal-worker</module>
     <module>payment-initiation</module>
+    <!-- Legacy Kafka/Artemis services kept for reference; not started in docker-compose -->
     <module>routing</module>
     <module>transformer</module>
     <module>payment-processor</module>
@@ -27,11 +30,17 @@
     <module>posting</module>
     <module>dispatcher</module>
     <module>response-handler</module>
+    <module>sanctions-screening</module>
+    <module>fraud-analytics</module>
+    <module>network-simulator</module>
+    <module>settlement-processor</module>
   </modules>
 
   <properties>
     <java.version>21</java.version>
     <otel.version>1.36.0</otel.version>
+    <solace.version>10.24.0</solace.version>
+    <temporal.version>1.22.3</temporal.version>
   </properties>
 
   <dependencyManagement>
@@ -42,6 +51,11 @@
         <version>${otel.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.temporal</groupId>
+        <artifactId>temporal-sdk</artifactId>
+        <version>${temporal.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

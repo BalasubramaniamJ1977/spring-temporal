@@ -6,6 +6,8 @@ WORKDIR /build
 # Copy parent POM + all module POMs for full dependency resolution
 COPY pom.xml .
 COPY common/pom.xml                common/pom.xml
+COPY temporal-api/pom.xml          temporal-api/pom.xml
+COPY temporal-worker/pom.xml       temporal-worker/pom.xml
 COPY payment-initiation/pom.xml    payment-initiation/pom.xml
 COPY routing/pom.xml               routing/pom.xml
 COPY transformer/pom.xml           transformer/pom.xml
@@ -14,12 +16,17 @@ COPY accounting-generator/pom.xml  accounting-generator/pom.xml
 COPY posting/pom.xml               posting/pom.xml
 COPY dispatcher/pom.xml            dispatcher/pom.xml
 COPY response-handler/pom.xml      response-handler/pom.xml
+COPY sanctions-screening/pom.xml   sanctions-screening/pom.xml
+COPY fraud-analytics/pom.xml       fraud-analytics/pom.xml
+COPY network-simulator/pom.xml     network-simulator/pom.xml
+COPY settlement-processor/pom.xml  settlement-processor/pom.xml
 
 # Resolve all deps and cache as a layer — only invalidated when a POM changes
 RUN mvn dependency:go-offline --no-transfer-progress -q
 
-# Copy source for common (always needed) + the target service
-COPY common/src          common/src
+# Copy source for common and temporal-api (always needed as shared libs) + the target service
+COPY common/src       common/src
+COPY temporal-api/src temporal-api/src
 COPY ${SERVICE_MODULE}/src ${SERVICE_MODULE}/src
 
 # Build common + service, skip tests
@@ -44,9 +51,6 @@ COPY --from=build /build/${SERVICE_MODULE}/target/${SERVICE_MODULE}-*.jar app.ja
 
 EXPOSE 8080
 
-# -javaagent    : enables zero-code auto-instrumentation for Spring MVC,
-#                 RestTemplate, and Logback — no imports needed in services.
-# experimental-log-attributes: adds extra fields (code.filepath, …) to OTLP logs.
 ENTRYPOINT ["java", \
   "-javaagent:/otel/javaagent.jar", \
   "-Dotel.instrumentation.logback-appender.experimental-log-attributes=true", \
